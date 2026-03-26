@@ -8,9 +8,9 @@ Built from real course notes across the full INE curriculum, TryHackMe rooms, Ze
 
 ## Usage
 
-Download [index.html](index.html) and open it in any browser — no internet connection, server, or installation required. Works from a USB drive on any OS.
+Browse the vault online at **https://IP-Medjed.github.io/EJPT-Vault/**
 
-This project is also hosted online at https://IP-Medjed.github.io/EJPT-Vault/
+Or download `index.html` and open it in any browser — no internet connection, server, or installation required. Works from a USB drive on any OS.
 
 ### Search
 
