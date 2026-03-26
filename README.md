@@ -8,7 +8,7 @@ A fully self-contained, offline-ready study vault for the eLearnSecurity Junior 
 
 Download [index.html](index.html) and open it in any browser — no internet connection, server, or installation required. Works from a USB drive on any OS.
 
-This project is also hosted online at https://awcl.github.io/ejpt-vault/
+This project is also hosted online at https://IP-Medjed.github.io/EJPT-Vault/
 
 ### Search
 
@@ -80,4 +80,3 @@ This tool is intended for use in authorized penetration testing engagements and 
 
 - Nmap Cheatsheet section sourced from [ekol-x9/nmap-cheatsheet](https://github.com/ekol-x9/nmap-cheatsheet)
 - PayloadsAllTheThings section sourced from [swisskyrepo/PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings)
-- Built with assistance from Claude (Anthropic)
