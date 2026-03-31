@@ -73,6 +73,28 @@
   .cl { line-height: 2; font-size: 12px; }
   .cn { color: #10b981; }
   code { background: #1a2332; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+  /* NETWORK MAP */
+  #mapCanvas { border: 1px solid #1e293b; border-radius: 6px; cursor: grab; display:block; background: #0a0f1e; }
+  #mapCanvas:active { cursor: grabbing; }
+  .map-toolbar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+  .map-toolbar .btn { padding: 5px 12px; }
+  .map-help { font-size:10px; color:#475569; margin-top:8px; line-height:1.8; }
+  .map-legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+  .map-legend-item { display:flex; align-items:center; gap:5px; font-size:10px; color:#94a3b8; }
+  .map-legend-dot { width:10px; height:10px; border-radius:50%; }
+  .map-modal {
+    position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7);
+    display:flex; align-items:center; justify-content:center; z-index:100;
+  }
+  .map-modal-box {
+    background:#111827; border:1px solid #1e293b; border-radius:8px; padding:20px;
+    min-width:320px; max-width:90vw;
+  }
+  .map-modal-title { font-size:13px; font-weight:700; color:#10b981; margin-bottom:14px; letter-spacing:0.5px; }
+  .map-modal-row { margin-bottom:10px; }
+  .map-modal-row label { display:block; font-size:10px; color:#64748b; margin-bottom:4px; font-weight:600; letter-spacing:0.5px; }
+  .map-modal-row .fi { width:100%; }
+  .map-modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
   .save-bar { display:flex; gap:6px; align-items:center; }
   .save-flash {
     font-size:10px; color:#10b981; opacity:0; transition:opacity 0.3s;
@@ -104,15 +126,15 @@
 const PH={21:"FTP → banner + anonymous login",22:"SSH → only with creds",80:"HTTP → browse → source → robots → sitemap → headers → dirb",139:"SMB → enum4linux -a",443:"HTTPS → same as 80 + check cert",445:"SMB → enum4linux -a → smbclient -L -N",3306:"MySQL → root blank/default creds",3389:"RDP → only with creds",8080:"HTTP-Alt → treat like port 80"};
 const PVH={autoroute:"→ MSF modules only. External tools need portfwd.",portfwd:"→ External tools point at 127.0.0.1:<local_port>, NEVER the internal IP.",socks_proxy:"→ Tools point at ACTUAL target IP. Nmap needs -sT -Pn."};
 const DC=[{t:"PIVOT ACTION",q:"Metasploit module or external tool?"},{t:"POST-EXPLOIT",q:"What OS am I on?"},{t:"SQLMAP",q:"Right parameter + right database?"},{t:"ENUMERATION",q:"Exhausted free & quiet options?"},{t:"SCAN FAILS",q:"Session → Config → Firewall. Fix plumbing first."},{t:"ESCALATION STALLS",q:"Move laterally. Check other home dirs. Password reuse."}];
-const TABS=[{k:"targets",l:"TARGETS"},{k:"creds",l:"CREDS"},{k:"flags",l:"FLAGS"},{k:"pivots",l:"PIVOTS"},{k:"log",l:"CMD LOG"},{k:"notes",l:"NOTES"},{k:"checks",l:"CHECKS"}];
+const TABS=[{k:"map",l:"MAP"},{k:"targets",l:"TARGETS"},{k:"creds",l:"CREDS"},{k:"flags",l:"FLAGS"},{k:"pivots",l:"PIVOTS"},{k:"log",l:"CMD LOG"},{k:"notes",l:"NOTES"},{k:"checks",l:"CHECKS"}];
 
-let S={targets:[],credentials:[],flags:[],pivots:[],commands:[],notes:""};
-let AT="targets";
+let S={targets:[],credentials:[],flags:[],pivots:[],commands:[],notes:"",mapNodes:[],mapEdges:[]};
+let AT="map";
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function save(){try{localStorage.setItem("ejpt-tracker",JSON.stringify(S))}catch(e){}}
-function load(){try{const d=localStorage.getItem("ejpt-tracker");if(d)S=JSON.parse(d)}catch(e){}}
+function load(){try{const d=localStorage.getItem("ejpt-tracker");if(d){S=JSON.parse(d);if(!S.mapNodes)S.mapNodes=[];if(!S.mapEdges)S.mapEdges=[];}}catch(e){}}
 
 function flashSave(){
   const el=document.getElementById("saveFlash");
@@ -157,7 +179,7 @@ function stats(){
 }
 
 function tabs(){
-  const cs={targets:S.targets.length,creds:S.credentials.length,flags:S.flags.length,pivots:S.pivots.length,log:S.commands.length};
+  const cs={map:S.mapNodes.length,targets:S.targets.length,creds:S.credentials.length,flags:S.flags.length,pivots:S.pivots.length,log:S.commands.length};
   document.getElementById("tabBar").innerHTML=TABS.map(t=>{
     const c=cs[t.k];const ch=c>0?`<span class="count">${c}</span>`:"";
     return `<button class="tab-btn ${AT===t.k?"active":""}" onclick="sw('${t.k}')">${t.l}${ch}</button>`;
@@ -168,9 +190,10 @@ function sw(k){AT=k;tabs();render()}
 
 function render(){
   const el=document.getElementById("content");
-  const fn={targets:rTargets,creds:rCreds,flags:rFlags,pivots:rPivots,log:rLog,notes:rNotes,checks:rChecks};
+  const fn={map:rMap,targets:rTargets,creds:rCreds,flags:rFlags,pivots:rPivots,log:rLog,notes:rNotes,checks:rChecks};
   el.innerHTML=fn[AT]();
   bind();save();stats();
+  if(AT==="map")initMap();
 }
 
 let _binds=[];
@@ -201,6 +224,373 @@ function ab(label,cb){
   reg(id,"click",()=>{cb();save();stats();tabs();render();});
   return `<button id="${id}" class="btn">${label}</button>`;
 }
+
+/* ---- NETWORK MAP ---- */
+let mapCtx=null, mapCvs=null, dragNode=null, dragOff={x:0,y:0}, linkMode=false, linkFrom=null, hoverNode=null;
+
+const NODE_COLORS={Kali:"#3b82f6",Enumerated:"#64748b","In Progress":"#f59e0b",Owned:"#10b981",Unknown:"#64748b"};
+const NODE_W=150, NODE_H=64;
+
+function rMap(){
+  return `<div class="map-toolbar">
+    <button class="btn" onclick="addMapNode()">+ Node</button>
+    <button class="btn" onclick="startLink()">+ Connection</button>
+    <button class="btn" onclick="syncFromTargets()">Sync Targets</button>
+    <button class="btn btn-danger" onclick="delSelected()">Delete Selected</button>
+    <span style="font-size:10px;color:#475569;margin-left:8px" id="mapStatus">Drag nodes to position</span>
+  </div>
+  <canvas id="mapCanvas" width="900" height="500"></canvas>
+  <div class="map-legend">
+    <div class="map-legend-item"><div class="map-legend-dot" style="background:#3b82f6"></div>Kali</div>
+    <div class="map-legend-item"><div class="map-legend-dot" style="background:#64748b"></div>Enumerated</div>
+    <div class="map-legend-item"><div class="map-legend-dot" style="background:#f59e0b"></div>In Progress</div>
+    <div class="map-legend-item"><div class="map-legend-dot" style="background:#10b981"></div>Owned</div>
+  </div>
+  <div class="map-help">
+    <b style="color:#94a3b8">Controls:</b> Drag to move nodes · Click to select · "Sync Targets" pulls from Targets tab · Double-click node to edit
+  </div>
+  <div id="mapModal"></div>`;
+}
+
+function initMap(){
+  mapCvs=document.getElementById("mapCanvas");
+  if(!mapCvs)return;
+  // responsive width
+  const w=mapCvs.parentElement.offsetWidth-2;
+  mapCvs.width=Math.max(w,600);
+  mapCvs.height=500;
+  mapCtx=mapCvs.getContext("2d");
+
+  // seed Kali node if empty
+  if(S.mapNodes.length===0){
+    S.mapNodes.push({id:uid(),label:"KALI",ip:"Attacker",subnet:"",os:"Kali",status:"Kali",x:40,y:210,selected:false});
+    save();
+  }
+
+  mapCvs.addEventListener("mousedown",mapMouseDown);
+  mapCvs.addEventListener("mousemove",mapMouseMove);
+  mapCvs.addEventListener("mouseup",mapMouseUp);
+  mapCvs.addEventListener("dblclick",mapDblClick);
+  drawMap();
+}
+
+function nodeAt(mx,my){
+  for(let i=S.mapNodes.length-1;i>=0;i--){
+    const n=S.mapNodes[i];
+    if(mx>=n.x&&mx<=n.x+NODE_W&&my>=n.y&&my<=n.y+NODE_H)return n;
+  }
+  return null;
+}
+
+function mapMouseDown(e){
+  const r=mapCvs.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  const n=nodeAt(mx,my);
+
+  if(linkMode&&n){
+    if(!linkFrom){linkFrom=n;setMapStatus("Now click the destination node…");drawMap();return;}
+    if(n.id!==linkFrom.id){
+      showEdgeModal(linkFrom.id,n.id);
+      linkMode=false;linkFrom=null;setMapStatus("Drag nodes to position");
+    }
+    return;
+  }
+
+  // select/deselect
+  S.mapNodes.forEach(nd=>nd.selected=false);
+  S.mapEdges.forEach(ed=>ed.selected=false);
+
+  if(n){
+    n.selected=true;
+    dragNode=n;
+    dragOff={x:mx-n.x,y:my-n.y};
+  } else {
+    // check edge click
+    const edge=edgeAt(mx,my);
+    if(edge)edge.selected=true;
+  }
+  drawMap();
+}
+
+function mapMouseMove(e){
+  const r=mapCvs.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  if(dragNode){
+    dragNode.x=Math.max(0,Math.min(mapCvs.width-NODE_W,mx-dragOff.x));
+    dragNode.y=Math.max(0,Math.min(mapCvs.height-NODE_H,my-dragOff.y));
+    drawMap();
+  }
+}
+
+function mapMouseUp(){
+  if(dragNode){save();}
+  dragNode=null;
+}
+
+function mapDblClick(e){
+  const r=mapCvs.getBoundingClientRect();
+  const n=nodeAt(e.clientX-r.left,e.clientY-r.top);
+  if(n)showNodeModal(n);
+}
+
+function edgeAt(mx,my){
+  for(const ed of S.mapEdges){
+    const a=S.mapNodes.find(n=>n.id===ed.from);
+    const b=S.mapNodes.find(n=>n.id===ed.to);
+    if(!a||!b)continue;
+    const ax=a.x+NODE_W/2,ay=a.y+NODE_H/2,bx=b.x+NODE_W/2,by=b.y+NODE_H/2;
+    const len=Math.sqrt((bx-ax)**2+(by-ay)**2);
+    if(len===0)continue;
+    const t=Math.max(0,Math.min(1,((mx-ax)*(bx-ax)+(my-ay)*(by-ay))/(len*len)));
+    const px=ax+t*(bx-ax),py=ay+t*(by-ay);
+    if(Math.sqrt((mx-px)**2+(my-py)**2)<8)return ed;
+  }
+  return null;
+}
+
+function drawMap(){
+  if(!mapCtx)return;
+  const ctx=mapCtx;
+  ctx.clearRect(0,0,mapCvs.width,mapCvs.height);
+
+  // draw grid
+  ctx.strokeStyle="#111827";ctx.lineWidth=1;
+  for(let x=0;x<mapCvs.width;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,mapCvs.height);ctx.stroke();}
+  for(let y=0;y<mapCvs.height;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(mapCvs.width,y);ctx.stroke();}
+
+  // draw subnet groups
+  const subnets={};
+  S.mapNodes.forEach(n=>{if(n.subnet){if(!subnets[n.subnet])subnets[n.subnet]=[];subnets[n.subnet].push(n);}});
+  const subColors=["#10b981","#3b82f6","#f59e0b","#a855f7","#ef4444"];
+  let si=0;
+  for(const [sub,nodes] of Object.entries(subnets)){
+    if(nodes.length<1)continue;
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    nodes.forEach(n=>{minX=Math.min(minX,n.x);minY=Math.min(minY,n.y);maxX=Math.max(maxX,n.x+NODE_W);maxY=Math.max(maxY,n.y+NODE_H);});
+    const pad=20;
+    ctx.fillStyle=(subColors[si%subColors.length])+"0d";
+    ctx.strokeStyle=(subColors[si%subColors.length])+"33";
+    ctx.lineWidth=1;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.roundRect(minX-pad,minY-pad,maxX-minX+pad*2,maxY-minY+pad*2,8);
+    ctx.fill();ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=(subColors[si%subColors.length])+"88";
+    ctx.font="600 10px 'JetBrains Mono',monospace";
+    ctx.fillText(sub,minX-pad+6,minY-pad+12);
+    si++;
+  }
+
+  // draw edges
+  S.mapEdges.forEach(ed=>{
+    const a=S.mapNodes.find(n=>n.id===ed.from);
+    const b=S.mapNodes.find(n=>n.id===ed.to);
+    if(!a||!b)return;
+    const ax=a.x+NODE_W/2,ay=a.y+NODE_H/2,bx=b.x+NODE_W/2,by=b.y+NODE_H/2;
+
+    // line
+    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);
+    ctx.strokeStyle=ed.selected?"#10b981":"#334155";
+    ctx.lineWidth=ed.selected?2.5:1.5;
+    ctx.stroke();
+
+    // arrowhead
+    const angle=Math.atan2(by-ay,bx-ax);
+    const tipX=bx-Math.cos(angle)*(NODE_W/2+4);
+    const tipY=by-Math.sin(angle)*(NODE_H/2+4);
+    ctx.beginPath();
+    ctx.moveTo(tipX,tipY);
+    ctx.lineTo(tipX-10*Math.cos(angle-0.4),tipY-10*Math.sin(angle-0.4));
+    ctx.lineTo(tipX-10*Math.cos(angle+0.4),tipY-10*Math.sin(angle+0.4));
+    ctx.closePath();
+    ctx.fillStyle=ed.selected?"#10b981":"#334155";
+    ctx.fill();
+
+    // label
+    if(ed.label){
+      const mx=(ax+bx)/2, my=(ay+by)/2;
+      ctx.font="600 9px 'JetBrains Mono',monospace";
+      const tw=ctx.measureText(ed.label).width;
+      ctx.fillStyle="#0c1322dd";
+      ctx.fillRect(mx-tw/2-4,my-7,tw+8,14);
+      ctx.fillStyle=ed.selected?"#10b981":"#94a3b8";
+      ctx.fillText(ed.label,mx-tw/2,my+3);
+    }
+  });
+
+  // draw nodes
+  S.mapNodes.forEach(n=>{
+    const col=NODE_COLORS[n.status]||"#64748b";
+    // shadow
+    ctx.fillStyle="#00000033";
+    ctx.beginPath();ctx.roundRect(n.x+2,n.y+2,NODE_W,NODE_H,6);ctx.fill();
+    // body
+    ctx.fillStyle="#111827";
+    ctx.strokeStyle=n.selected?col:col+"66";
+    ctx.lineWidth=n.selected?2.5:1.5;
+    ctx.beginPath();ctx.roundRect(n.x,n.y,NODE_W,NODE_H,6);ctx.fill();ctx.stroke();
+    // top accent bar
+    ctx.fillStyle=col;
+    ctx.fillRect(n.x+1,n.y+1,NODE_W-2,3);
+    // label
+    ctx.font="700 11px 'JetBrains Mono',monospace";
+    ctx.fillStyle="#e2e8f0";
+    ctx.fillText(truncText(ctx,n.label||"?",NODE_W-16),n.x+8,n.y+22);
+    // IP
+    ctx.font="400 10px 'JetBrains Mono',monospace";
+    ctx.fillStyle=col;
+    ctx.fillText(truncText(ctx,n.ip||"",NODE_W-16),n.x+8,n.y+37);
+    // OS + status
+    ctx.font="600 9px 'JetBrains Mono',monospace";
+    ctx.fillStyle="#475569";
+    const info=[n.os,n.status].filter(Boolean).join(" · ");
+    ctx.fillText(truncText(ctx,info,NODE_W-16),n.x+8,n.y+52);
+  });
+
+  // link mode indicator
+  if(linkMode&&linkFrom){
+    const n=linkFrom;
+    ctx.strokeStyle="#10b98155";ctx.lineWidth=2;ctx.setLineDash([6,4]);
+    ctx.beginPath();ctx.roundRect(n.x-4,n.y-4,NODE_W+8,NODE_H+8,10);ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function truncText(ctx,text,maxW){
+  if(ctx.measureText(text).width<=maxW)return text;
+  while(text.length>0&&ctx.measureText(text+"…").width>maxW)text=text.slice(0,-1);
+  return text+"…";
+}
+
+function setMapStatus(msg){const el=document.getElementById("mapStatus");if(el)el.textContent=msg;}
+
+function addMapNode(){showNodeModal(null);}
+
+function startLink(){
+  linkMode=true;linkFrom=null;
+  setMapStatus("Click the source node…");
+}
+
+function delSelected(){
+  S.mapNodes=S.mapNodes.filter(n=>!n.selected);
+  // also remove edges referencing deleted nodes
+  const ids=new Set(S.mapNodes.map(n=>n.id));
+  S.mapEdges=S.mapEdges.filter(e=>!e.selected&&ids.has(e.from)&&ids.has(e.to));
+  save();tabs();drawMap();
+}
+
+function syncFromTargets(){
+  const existing=new Set(S.mapNodes.map(n=>n.ip));
+  let added=0;
+  S.targets.forEach((t,i)=>{
+    if(t.ip&&!existing.has(t.ip)){
+      S.mapNodes.push({
+        id:uid(),label:t.hostname||t.ip,ip:t.ip,
+        subnet:"",os:t.os||"",status:t.status||"Enumerated",
+        x:200+((S.mapNodes.length-1)%4)*170,
+        y:40+Math.floor((S.mapNodes.length-1)/4)*100,
+        selected:false
+      });
+      existing.add(t.ip);
+      added++;
+    }
+  });
+  if(added)save();
+  setMapStatus(added?`Synced ${added} new node(s)`:"All targets already on map");
+  tabs();drawMap();
+}
+
+function showNodeModal(existing){
+  const isEdit=!!existing;
+  const n=existing||{label:"",ip:"",subnet:"",os:"",status:"Enumerated"};
+  document.getElementById("mapModal").innerHTML=`
+    <div class="map-modal">
+      <div class="map-modal-box">
+        <div class="map-modal-title">${isEdit?"EDIT":"ADD"} NODE</div>
+        <div class="map-modal-row"><label>LABEL / HOSTNAME</label><input class="fi" id="nm_label" value="${esc(n.label)}"></div>
+        <div class="map-modal-row"><label>IP ADDRESS</label><input class="fi" id="nm_ip" value="${esc(n.ip)}"></div>
+        <div class="map-modal-row"><label>SUBNET (e.g. 10.10.10.0/24)</label><input class="fi" id="nm_subnet" value="${esc(n.subnet||"")}"></div>
+        <div class="map-modal-row"><label>OS</label>
+          <select class="fi" id="nm_os">
+            <option value="" ${n.os===""?"selected":""}>Unknown</option>
+            <option value="Linux" ${n.os==="Linux"?"selected":""}>Linux</option>
+            <option value="Windows" ${n.os==="Windows"?"selected":""}>Windows</option>
+          </select>
+        </div>
+        <div class="map-modal-row"><label>STATUS</label>
+          <select class="fi" id="nm_status">
+            <option value="Kali" ${n.status==="Kali"?"selected":""}>Kali (Attacker)</option>
+            <option value="Enumerated" ${n.status==="Enumerated"?"selected":""}>Enumerated</option>
+            <option value="In Progress" ${n.status==="In Progress"?"selected":""}>In Progress</option>
+            <option value="Owned" ${n.status==="Owned"?"selected":""}>Owned</option>
+          </select>
+        </div>
+        <div class="map-modal-actions">
+          <button class="btn btn-danger" onclick="closeModal()">Cancel</button>
+          <button class="btn" onclick="saveNodeModal(${isEdit?"'"+n.id+"'":"null"})">${isEdit?"Save":"Add"}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function saveNodeModal(existingId){
+  const label=document.getElementById("nm_label").value.trim();
+  const ip=document.getElementById("nm_ip").value.trim();
+  const subnet=document.getElementById("nm_subnet").value.trim();
+  const os=document.getElementById("nm_os").value;
+  const status=document.getElementById("nm_status").value;
+  if(!label&&!ip){closeModal();return;}
+
+  if(existingId){
+    const n=S.mapNodes.find(nd=>nd.id===existingId);
+    if(n){n.label=label;n.ip=ip;n.subnet=subnet;n.os=os;n.status=status;}
+  } else {
+    S.mapNodes.push({
+      id:uid(),label:label||ip,ip,subnet,os,status,
+      x:200+((S.mapNodes.length-1)%4)*170,
+      y:40+Math.floor((S.mapNodes.length-1)/4)*100,
+      selected:false
+    });
+  }
+  save();tabs();closeModal();drawMap();
+}
+
+function showEdgeModal(fromId,toId){
+  const a=S.mapNodes.find(n=>n.id===fromId);
+  const b=S.mapNodes.find(n=>n.id===toId);
+  document.getElementById("mapModal").innerHTML=`
+    <div class="map-modal">
+      <div class="map-modal-box">
+        <div class="map-modal-title">ADD CONNECTION</div>
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:12px">
+          ${esc(a.label||a.ip)} <span class="arrow">→</span> ${esc(b.label||b.ip)}
+        </div>
+        <div class="map-modal-row"><label>LABEL (exploit, method, protocol)</label><input class="fi" id="em_label" placeholder="e.g. ms17_010, SSH creds, portfwd"></div>
+        <div class="map-modal-row"><label>METHOD</label>
+          <select class="fi" id="em_method">
+            <option value="">—</option>
+            <option value="autoroute">autoroute</option>
+            <option value="portfwd">portfwd</option>
+            <option value="exploit">exploit</option>
+            <option value="creds">credentials</option>
+            <option value="lateral">lateral move</option>
+          </select>
+        </div>
+        <div class="map-modal-actions">
+          <button class="btn btn-danger" onclick="closeModal()">Cancel</button>
+          <button class="btn" onclick="saveEdgeModal('${fromId}','${toId}')">Add</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function saveEdgeModal(fromId,toId){
+  const label=document.getElementById("em_label").value.trim();
+  const method=document.getElementById("em_method").value;
+  S.mapEdges.push({id:uid(),from:fromId,to:toId,label:label||method||"",method,selected:false});
+  save();closeModal();drawMap();
+}
+
+function closeModal(){document.getElementById("mapModal").innerHTML="";}
 
 function rTargets(){
   let h="";
