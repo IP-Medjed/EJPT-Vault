@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eJPT Exam Tracker — Architect Claude</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #080d19; color: #e2e8f0;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px; min-height: 100vh;
+  }
+  #header {
+    padding: 16px 16px 12px; border-bottom: 1px solid #10b98133;
+    background: linear-gradient(180deg, #0c1322 0%, #080d19 100%);
+    position: sticky; top: 0; z-index: 10;
+  }
+  #header h1 { font-size: 16px; font-weight: 700; color: #10b981; letter-spacing: 1px; }
+  #header .subtitle { font-size: 10px; color: #475569; margin-top: 2px; }
+  .tab-bar { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 12px; }
+  .tab-btn {
+    padding: 5px 10px; background: transparent; border: 1px solid transparent;
+    border-radius: 4px; color: #64748b; cursor: pointer;
+    font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .tab-btn.active { background: #10b98122; border-color: #10b98144; color: #10b981; }
+  .tab-btn .count {
+    margin-left: 4px; background: #334155; color: #94a3b8;
+    border-radius: 3px; padding: 1px 5px; font-size: 10px;
+  }
+  .tab-btn.active .count { background: #10b981; color: #080d19; }
+  #content { padding: 12px 16px; }
+  .card {
+    border: 1px solid #1e293b; border-radius: 5px;
+    padding: 10px; margin-bottom: 8px; background: #111827;
+  }
+  .card-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  .card-row:last-child { margin-bottom: 0; }
+  .fi {
+    background: #1a2332; border: 1px solid #1e293b; border-radius: 4px;
+    color: #e2e8f0; padding: 6px 8px; font-family: inherit; font-size: 12px; outline: none;
+  }
+  .fi:focus { border-color: #10b981; }
+  textarea.fi { width: 100%; min-height: 300px; resize: vertical; line-height: 1.6; padding: 12px; }
+  .btn {
+    background: #10b98118; color: #10b981; border: 1px solid #10b98144;
+    border-radius: 4px; padding: 4px 10px; cursor: pointer;
+    font-family: inherit; font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .btn-danger { background: #ef444418; color: #ef4444; border-color: #ef444444; }
+  .btn:hover { filter: brightness(1.2); }
+  .port-hint { font-size: 10px; color: #f59e0b; font-style: italic; }
+  .pivot-reminder { font-size: 10px; color: #f59e0b; font-style: italic; margin-top: 4px; }
+  .port-label { font-size: 11px; color: #64748b; font-weight: 600; letter-spacing: 0.5px; margin: 6px 0; }
+  .arrow { color: #10b981; font-weight: 700; }
+  .timestamp { font-size: 10px; color: #475569; }
+  .warn-box { margin-top: 12px; padding: 8px; background: #1a233244; border-radius: 4px; font-size: 11px; color: #f59e0b; }
+  .section-label { font-size: 11px; color: #94a3b8; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 12px; }
+  .check-card { border: 1px solid #1e293b; border-radius: 5px; padding: 10px 14px; margin-bottom: 6px; background: #111827; }
+  .check-trigger { font-size: 10px; color: #10b981; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .check-question { color: #f59e0b; font-size: 12px; }
+  .section { margin-bottom: 12px; border: 1px solid #1e293b; border-radius: 6px; overflow: hidden; background: #0c1322; }
+  .section-header {
+    width: 100%; display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; background: #111827; border: none; cursor: pointer;
+    color: #e2e8f0; font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .section-arrow { color: #10b981; font-size: 10px; }
+  .section-body { padding: 12px 14px; display: none; }
+  .section.open .section-body { display: block; }
+  .cl { line-height: 2; font-size: 12px; }
+  .cn { color: #10b981; }
+  code { background: #1a2332; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>eJPT EXAM TRACKER</h1>
+  <div class="subtitle" id="stats"></div>
+  <div class="tab-bar" id="tabBar"></div>
+</div>
+<div id="content"></div>
+
+<script>
+const PH={21:"FTP → banner + anonymous login",22:"SSH → only with creds",80:"HTTP → browse → source → robots → sitemap → headers → dirb",139:"SMB → enum4linux -a",443:"HTTPS → same as 80 + check cert",445:"SMB → enum4linux -a → smbclient -L -N",3306:"MySQL → root blank/default creds",3389:"RDP → only with creds",8080:"HTTP-Alt → treat like port 80"};
+const PVH={autoroute:"→ MSF modules only. External tools need portfwd.",portfwd:"→ External tools point at 127.0.0.1:<local_port>, NEVER the internal IP.",socks_proxy:"→ Tools point at ACTUAL target IP. Nmap needs -sT -Pn."};
+const DC=[{t:"PIVOT ACTION",q:"Metasploit module or external tool?"},{t:"POST-EXPLOIT",q:"What OS am I on?"},{t:"SQLMAP",q:"Right parameter + right database?"},{t:"ENUMERATION",q:"Exhausted free & quiet options?"},{t:"SCAN FAILS",q:"Session → Config → Firewall. Fix plumbing first."},{t:"ESCALATION STALLS",q:"Move laterally. Check other home dirs. Password reuse."}];
+const TABS=[{k:"targets",l:"TARGETS"},{k:"creds",l:"CREDS"},{k:"flags",l:"FLAGS"},{k:"pivots",l:"PIVOTS"},{k:"log",l:"CMD LOG"},{k:"notes",l:"NOTES"},{k:"checks",l:"CHECKS"}];
+
+let S={targets:[],credentials:[],flags:[],pivots:[],commands:[],notes:""};
+let AT="targets";
+
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function save(){try{localStorage.setItem("ejpt-tracker",JSON.stringify(S))}catch(e){}}
+function load(){try{const d=localStorage.getItem("ejpt-tracker");if(d)S=JSON.parse(d)}catch(e){}}
+
+function stats(){
+  const o=S.targets.filter(t=>t.status==="Owned").length;
+  document.getElementById("stats").textContent=`ARCHITECT CLAUDE — ${S.targets.length} targets · ${o} owned · ${S.credentials.length} creds · ${S.flags.length} flags`;
+}
+
+function tabs(){
+  const cs={targets:S.targets.length,creds:S.credentials.length,flags:S.flags.length,pivots:S.pivots.length,log:S.commands.length};
+  document.getElementById("tabBar").innerHTML=TABS.map(t=>{
+    const c=cs[t.k];const ch=c>0?`<span class="count">${c}</span>`:"";
+    return `<button class="tab-btn ${AT===t.k?"active":""}" onclick="sw('${t.k}')">${t.l}${ch}</button>`;
+  }).join("");
+}
+
+function sw(k){AT=k;tabs();render()}
+
+function render(){
+  const el=document.getElementById("content");
+  const fn={targets:rTargets,creds:rCreds,flags:rFlags,pivots:rPivots,log:rLog,notes:rNotes,checks:rChecks};
+  el.innerHTML=fn[AT]();
+  bind();save();stats();
+}
+
+let _binds=[];
+function reg(id,evt,fn){_binds.push({id,evt,fn})}
+function bind(){_binds.forEach(b=>{const el=document.getElementById(b.id);if(el)el.addEventListener(b.evt,b.fn)});_binds=[];}
+
+function fi(val,ph,w,cb){
+  const id="i"+uid();
+  reg(id,"input",e=>{cb(e.target.value);save();stats();tabs();});
+  return `<input id="${id}" class="fi" type="text" placeholder="${ph}" value="${esc(val)}" style="width:${w}">`;
+}
+
+function sl(val,opts,cb,cfn){
+  const id="s"+uid();
+  reg(id,"change",e=>{cb(e.target.value);save();stats();tabs();render();});
+  const c=cfn?cfn(val):"#e2e8f0";
+  return `<select id="${id}" class="fi" style="color:${c};font-weight:600;font-size:11px">${opts.map(o=>`<option value="${o.v}"${val===o.v?" selected":""}>${o.l}</option>`).join("")}</select>`;
+}
+
+function rb(cb){
+  const id="r"+uid();
+  reg(id,"click",()=>{cb();save();stats();tabs();render();});
+  return `<button id="${id}" class="btn btn-danger">✕</button>`;
+}
+
+function ab(label,cb){
+  const id="a"+uid();
+  reg(id,"click",()=>{cb();save();stats();tabs();render();});
+  return `<button id="${id}" class="btn">${label}</button>`;
+}
+
+function rTargets(){
+  let h="";
+  S.targets.forEach((t,i)=>{
+    let ph="";
+    t.ports.forEach((p,pi)=>{
+      const hint=PH[parseInt(p.port)];
+      ph+=`<div class="card-row">${fi(p.port,"Port","60px",v=>{S.targets[i].ports[pi].port=v})} ${fi(p.service,"Service","90px",v=>{S.targets[i].ports[pi].service=v})} ${fi(p.version,"Version","110px",v=>{S.targets[i].ports[pi].version=v})} ${fi(p.notes,"Notes","140px",v=>{S.targets[i].ports[pi].notes=v})} ${rb(()=>{S.targets[i].ports.splice(pi,1)})} ${hint?`<span class="port-hint">→ ${hint}</span>`:""}</div>`;
+    });
+    h+=`<div class="card"><div class="card-row">${fi(t.ip,"IP Address","140px",v=>{S.targets[i].ip=v})} ${fi(t.hostname,"Hostname","140px",v=>{S.targets[i].hostname=v})} ${sl(t.os,[{v:"",l:"OS?"},{v:"Linux",l:"Linux"},{v:"Windows",l:"Windows"},{v:"Unknown",l:"Unknown"}],v=>{S.targets[i].os=v})} ${sl(t.status,[{v:"Enumerated",l:"Enumerated"},{v:"In Progress",l:"In Progress"},{v:"Owned",l:"Owned"}],v=>{S.targets[i].status=v},v=>v==="Owned"?"#10b981":v==="In Progress"?"#f59e0b":"#94a3b8")} ${rb(()=>{S.targets.splice(i,1)})}</div><div class="port-label">PORTS / SERVICES</div>${ph}${ab("+ Port",()=>{S.targets[i].ports.push({port:"",service:"",version:"",notes:""})})}</div>`;
+  });
+  h+=ab("+ Add Target",()=>{S.targets.push({id:uid(),ip:"",hostname:"",os:"",status:"Enumerated",ports:[{port:"",service:"",version:"",notes:""}]})});
+  return h;
+}
+
+function rCreds(){
+  let h="";
+  S.credentials.forEach((c,i)=>{
+    h+=`<div class="card"><div class="card-row">${fi(c.username,"Username","130px",v=>{S.credentials[i].username=v})} ${fi(c.password,"Password","140px",v=>{S.credentials[i].password=v})} ${fi(c.hash,"Hash","180px",v=>{S.credentials[i].hash=v})} ${rb(()=>{S.credentials.splice(i,1)})}</div><div class="card-row">${fi(c.source,"Source (where found)","180px",v=>{S.credentials[i].source=v})} ${fi(c.worksOn,"Works on (IPs/services)","200px",v=>{S.credentials[i].worksOn=v})}</div></div>`;
+  });
+  h+=ab("+ Add Credential",()=>{S.credentials.push({id:uid(),username:"",password:"",hash:"",source:"",worksOn:""})});
+  if(S.credentials.length>0)h+=`<div class="warn-box">⚠ Try every credential on every service. Password reuse is a primary lateral movement vector.</div>`;
+  return h;
+}
+
+function rFlags(){
+  let h="";
+  S.flags.forEach((f,i)=>{
+    h+=`<div class="card"><div class="card-row"><span style="color:#64748b;font-size:11px;font-weight:700;width:24px">Q${i+1}</span> ${fi(f.question,"Question / Task","240px",v=>{S.flags[i].question=v})} ${fi(f.answer,"Answer / Flag","200px",v=>{S.flags[i].answer=v})} ${sl(f.confidence,[{v:"High",l:"HIGH"},{v:"Medium",l:"MED"},{v:"Low",l:"LOW"}],v=>{S.flags[i].confidence=v},v=>v==="High"?"#10b981":v==="Medium"?"#f59e0b":"#ef4444")} ${rb(()=>{S.flags.splice(i,1)})}</div></div>`;
+  });
+  h+=ab("+ Add Flag",()=>{S.flags.push({id:uid(),question:"",answer:"",confidence:"High"})});
+  return h;
+}
+
+function rPivots(){
+  let h="";
+  S.pivots.forEach((p,i)=>{
+    const hint=PVH[p.method]||"";
+    h+=`<div class="card"><div class="card-row">${fi(p.from,"From IP","120px",v=>{S.pivots[i].from=v})} <span class="arrow">→</span> ${fi(p.subnet,"To Subnet","130px",v=>{S.pivots[i].subnet=v})} ${fi(p.session,"Session #","80px",v=>{S.pivots[i].session=v})} ${sl(p.method,[{v:"",l:"Method?"},{v:"autoroute",l:"autoroute"},{v:"portfwd",l:"portfwd"},{v:"socks_proxy",l:"socks_proxy"}],v=>{S.pivots[i].method=v})} ${sl(p.status,[{v:"Active",l:"ACTIVE"},{v:"Dead",l:"DEAD"}],v=>{S.pivots[i].status=v},v=>v==="Active"?"#10b981":"#ef4444")} ${rb(()=>{S.pivots.splice(i,1)})}</div>${hint?`<div class="pivot-reminder">${hint}</div>`:""}</div>`;
+  });
+  h+=ab("+ Add Pivot",()=>{S.pivots.push({id:uid(),from:"",to:"",subnet:"",session:"",method:"",status:"Active"})});
+  return h;
+}
+
+function rLog(){
+  let h="";
+  S.commands.forEach((c,i)=>{
+    h+=`<div class="card"><div class="card-row"><span class="timestamp">${esc(c.timestamp)}</span> ${fi(c.target,"Target IP","120px",v=>{S.commands[i].target=v})} ${rb(()=>{S.commands.splice(i,1)})}</div><div class="card-row">${fi(c.command,"Command","100%",v=>{S.commands[i].command=v})}</div><div class="card-row">${fi(c.result,"Result / Key Finding","100%",v=>{S.commands[i].result=v})}</div></div>`;
+  });
+  h+=ab("+ Log Command",()=>{S.commands.push({id:uid(),target:"",command:"",result:"",timestamp:new Date().toLocaleTimeString()})});
+  return h;
+}
+
+function rNotes(){
+  const id="n"+uid();
+  reg(id,"input",e=>{S.notes=e.target.value;save()});
+  return `<textarea id="${id}" class="fi" placeholder="Free-form notes — theories, observations, rabbit holes to avoid...">${esc(S.notes)}</textarea>`;
+}
+
+function rChecks(){
+  let h=`<div class="section-label">ASK YOURSELF BEFORE EVERY ACTION</div>`;
+  DC.forEach(c=>{h+=`<div class="check-card"><div class="check-trigger">${c.t}</div><div class="check-question">→ ${c.q}</div></div>`});
+  h+=`<div class="section open" id="sec-linux"><button class="section-header" onclick="tog('sec-linux')"><span class="section-arrow">▼</span> LINUX POST-EX CHECKLIST</button><div class="section-body"><div class="cl"><span class="cn">1.</span> <code>id</code></div><div class="cl"><span class="cn">2.</span> <code>sudo -l</code></div><div class="cl"><span class="cn">3.</span> <code>cat /etc/passwd</code></div><div class="cl"><span class="cn">4.</span> <code>ps aux</code></div><div class="cl"><span class="cn">5.</span> <code>find / -perm -4000 2&gt;/dev/null</code></div><div class="cl"><span class="cn">6.</span> <code>cat /etc/crontab</code></div></div></div>`;
+  h+=`<div class="section" id="sec-http"><button class="section-header" onclick="tog('sec-http')"><span class="section-arrow">▶</span> HTTP ENUM ORDER</button><div class="section-body"><div class="cl"><span class="cn">1.</span> Browse manually</div><div class="cl"><span class="cn">2.</span> View page source</div><div class="cl"><span class="cn">3.</span> robots.txt</div><div class="cl"><span class="cn">4.</span> sitemap.xml</div><div class="cl"><span class="cn">5.</span> <code>curl -I</code> headers</div><div class="cl"><span class="cn">6.</span> Passive Burp spider</div><div class="cl"><span class="cn">7.</span> dirb/gobuster <code>-x php,txt,bak,conf,old</code></div></div></div>`;
+  h+=`<div class="section" id="sec-sql"><button class="section-header" onclick="tog('sec-sql')"><span class="section-arrow">▶</span> SQLMAP STAGES</button><div class="section-body"><div class="cl"><span class="cn">1.</span> <code>--batch</code> → read type + DBMS</div><div class="cl"><span class="cn">2.</span> <code>--dbs</code></div><div class="cl"><span class="cn">3.</span> <code>-D db --tables</code></div><div class="cl"><span class="cn">4.</span> <code>-D db -T tbl --columns</code></div><div class="cl"><span class="cn">5.</span> <code>-D db -T tbl -C col --dump</code></div><div class="cl" style="color:#f59e0b;margin-top:4px;font-size:11px">Time-based blind? Skip columns, guess: username,password</div></div></div>`;
+  return h;
+}
+
+function tog(id){const el=document.getElementById(id);el.classList.toggle("open");el.querySelector(".section-arrow").textContent=el.classList.contains("open")?"▼":"▶"}
+
+load();tabs();render();stats();
+</script>
+</body>
+</html>
