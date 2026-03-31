@@ -73,12 +73,29 @@
   .cl { line-height: 2; font-size: 12px; }
   .cn { color: #10b981; }
   code { background: #1a2332; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+  .save-bar { display:flex; gap:6px; align-items:center; }
+  .save-flash {
+    font-size:10px; color:#10b981; opacity:0; transition:opacity 0.3s;
+    letter-spacing:0.5px; font-weight:600;
+  }
+  .save-flash.show { opacity:1; }
+  .hdr-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
 </style>
 </head>
 <body>
 <div id="header">
-  <h1>eJPT EXAM TRACKER</h1>
-  <div class="subtitle" id="stats"></div>
+  <div class="hdr-row">
+    <div>
+      <h1>eJPT EXAM TRACKER</h1>
+      <div class="subtitle" id="stats"></div>
+    </div>
+    <div class="save-bar">
+      <span class="save-flash" id="saveFlash">✓ SAVED</span>
+      <button class="btn" onclick="manualSave()" title="Ctrl+S">SAVE</button>
+      <button class="btn" onclick="exportJSON()">EXPORT</button>
+      <button class="btn" onclick="importJSON()">IMPORT</button>
+    </div>
+  </div>
   <div class="tab-bar" id="tabBar"></div>
 </div>
 <div id="content"></div>
@@ -96,6 +113,43 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function save(){try{localStorage.setItem("ejpt-tracker",JSON.stringify(S))}catch(e){}}
 function load(){try{const d=localStorage.getItem("ejpt-tracker");if(d)S=JSON.parse(d)}catch(e){}}
+
+function flashSave(){
+  const el=document.getElementById("saveFlash");
+  el.classList.add("show");
+  setTimeout(()=>el.classList.remove("show"),1500);
+}
+
+function manualSave(){save();flashSave();}
+
+function exportJSON(){
+  save();
+  const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="ejpt-tracker-"+new Date().toISOString().slice(0,16).replace(/:/g,"")+".json";
+  a.click();
+  flashSave();
+}
+
+function importJSON(){
+  const inp=document.createElement("input");inp.type="file";inp.accept=".json";
+  inp.onchange=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{S=JSON.parse(ev.target.result);save();tabs();render();stats();flashSave();}
+      catch(err){alert("Invalid file — could not import.")}
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+
+// Ctrl+S keyboard shortcut
+document.addEventListener("keydown",e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==="s"){e.preventDefault();manualSave();}
+});
 
 function stats(){
   const o=S.targets.filter(t=>t.status==="Owned").length;
@@ -218,6 +272,16 @@ function rChecks(){
 function tog(id){const el=document.getElementById(id);el.classList.toggle("open");el.querySelector(".section-arrow").textContent=el.classList.contains("open")?"▼":"▶"}
 
 load();tabs();render();stats();
+
+// Auto-save every 30 seconds as a safety net
+setInterval(()=>{save()},30000);
+
+// Warn before closing if there's data
+window.addEventListener("beforeunload",e=>{
+  if(S.targets.length||S.credentials.length||S.flags.length||S.commands.length||S.notes){
+    e.preventDefault();e.returnValue="";
+  }
+});
 </script>
 </body>
 </html>
